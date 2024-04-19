@@ -1,10 +1,7 @@
 package ee.taltech.inbankbackend.endpoint;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import ee.taltech.inbankbackend.exceptions.InvalidLoanAmountException;
-import ee.taltech.inbankbackend.exceptions.InvalidLoanPeriodException;
-import ee.taltech.inbankbackend.exceptions.InvalidPersonalCodeException;
-import ee.taltech.inbankbackend.exceptions.NoValidLoanException;
+import ee.taltech.inbankbackend.exceptions.*;
 import ee.taltech.inbankbackend.service.Decision;
 import ee.taltech.inbankbackend.service.DecisionEngine;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,6 +17,7 @@ import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
+import static ee.taltech.inbankbackend.config.DecisionEngineConstants.ARBITRARY_LIFE_TIME_VALUE;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -219,5 +217,55 @@ public class DecisionEngineControllerTest {
         assert response.getLoanAmount() == null;
         assert response.getLoanPeriod() == null;
         assert response.getErrorMessage().equals("An unexpected error occurred");
+    }
+
+    @Test
+    public void givenInvalidClientOverAgeInProvidedPersonalCode_whenRequestDecision_thenReturnsBadRequest()
+            throws Exception, InvalidLoanPeriodException, NoValidLoanException, InvalidPersonalCodeException,
+            InvalidLoanAmountException {
+        when(decisionEngine.calculateApprovedLoan(anyString(), anyLong(), anyInt()))
+                .thenThrow(new InvalidLoanClientAgeException(String.format("Client is over %s years old!", ARBITRARY_LIFE_TIME_VALUE / 12)));
+
+        DecisionRequest request = new DecisionRequest("34001084212", 10L, 10);
+
+        MvcResult result = mockMvc.perform(post("/loan/decision")
+                        .content(objectMapper.writeValueAsString(request))
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.loanAmount").isEmpty())
+                .andExpect(jsonPath("$.loanPeriod").isEmpty())
+                .andExpect(jsonPath("$.errorMessage").value(String.format("Client is over %s years old!", ARBITRARY_LIFE_TIME_VALUE / 12)))
+                .andReturn();
+
+        DecisionResponse response = objectMapper.readValue(result.getResponse().getContentAsString(), DecisionResponse.class);
+        assert response.getLoanAmount() == null;
+        assert response.getLoanPeriod() == null;
+        assert response.getErrorMessage().equals(String.format("Client is over %s years old!", ARBITRARY_LIFE_TIME_VALUE / 12));
+    }
+
+    @Test
+    public void givenInvalidClientUnderAgeInProvidedPersonalCode_whenRequestDecision_thenReturnsBadRequest()
+            throws Exception, InvalidLoanPeriodException, NoValidLoanException, InvalidPersonalCodeException,
+            InvalidLoanAmountException {
+        when(decisionEngine.calculateApprovedLoan(anyString(), anyLong(), anyInt()))
+                .thenThrow(new InvalidLoanClientAgeException("Client is under 18 years old!"));
+
+        DecisionRequest request = new DecisionRequest("61001084212", 10L, 10);
+
+        MvcResult result = mockMvc.perform(post("/loan/decision")
+                        .content(objectMapper.writeValueAsString(request))
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.loanAmount").isEmpty())
+                .andExpect(jsonPath("$.loanPeriod").isEmpty())
+                .andExpect(jsonPath("$.errorMessage").value("Client is under 18 years old!"))
+                .andReturn();
+
+        DecisionResponse response = objectMapper.readValue(result.getResponse().getContentAsString(), DecisionResponse.class);
+        assert response.getLoanAmount() == null;
+        assert response.getLoanPeriod() == null;
+        assert response.getErrorMessage().equals("Client is under 18 years old!");
     }
 }
